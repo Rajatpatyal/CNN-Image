@@ -1,0 +1,72 @@
+import numpy as np
+from keras.preprocessing.image import ImageDataGenerator
+from keras.models import Sequential
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from keras.optimizers import Adam, RMSprop
+from keras.losses import categorical_crossentropy
+from sklearn.metrics import accuracy_score
+from hyperopt import fmin, tpe, hp
+
+# Load and preprocess image data (replace with your data loading and preprocessing steps)
+# Use ImageDataGenerator for data augmentation, resizing, etc.
+train_datagen = ImageDataGenerator(...)  # Specify your augmentation settings
+train_generator = train_datagen.flow_from_directory('train_dir', target_size=(150, 150), batch_size=32, class_mode='categorical')
+
+validation_datagen = ImageDataGenerator(...)  # Similar settings for validation data
+validation_generator = validation_datagen.flow_from_directory('validation_dir', target_size=(150, 150), batch_size=32, class_mode='categorical')
+
+# Define CNN model
+def create_cnn_model(params):
+    model = Sequential()
+    model.add(Conv2D(params['filters'], (3, 3), activation=params['activation'], input_shape=(150, 150, 3)))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(params['filters'], (3, 3), activation=params['activation']))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(params['filters'], (3, 3), activation=params['activation']))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Flatten())
+    model.add(Dense(params['dense_units'], activation=params['activation']))
+    model.add(Dropout(params['dropout']))
+    model.add(Dense(num_classes, activation='softmax'))
+
+    optimizer = Adam() if params['optimizer'] == 'adam' else RMSprop()
+    model.compile(optimizer=optimizer, loss=categorical_crossentropy, metrics=['accuracy'])
+    return model
+
+# Define the search space for hyperparameters
+space = {
+    'filters': hp.choice('filters', [32, 64, 128]),
+    'activation': hp.choice('activation', ['relu', 'tanh', 'sigmoid']),
+    'dense_units': hp.choice('dense_units', [128, 256, 512]),
+    'dropout': hp.uniform('dropout', 0.2, 0.5),
+    'optimizer': hp.choice('optimizer', ['adam', 'rmsprop']),
+    'epochs': hp.choice('epochs', [10, 20, 30])
+}
+
+# Hyperparameter optimization using Hyperopt
+def objective(params):
+    model = create_cnn_model(params)
+    model.fit(train_generator, steps_per_epoch=100, epochs=params['epochs'], validation_data=validation_generator, validation_steps=50, verbose=0)
+    
+    y_pred = model.predict(validation_generator)
+    y_pred_classes = np.argmax(y_pred, axis=1)
+    accuracy = accuracy_score(validation_generator.classes, y_pred_classes)
+    return -accuracy  # Hyperopt minimizes, so we use negative accuracy
+
+best = fmin(fn=objective, space=space, algo=tpe.suggest, max_evals=10)
+
+# Print the best hyperparameters found
+best_filters = [32, 64, 128][best['filters']]
+best_activation = ['relu', 'tanh', 'sigmoid'][best['activation']]
+best_dense_units = [128, 256, 512][best['dense_units']]
+best_dropout = best['dropout']
+best_optimizer = ['adam', 'rmsprop'][best['optimizer']]
+best_epochs = [10, 20, 30][best['epochs']]
+
+print("Best Hyperparameters:")
+print("Filters:", best_filters)
+print("Activation:", best_activation)
+print("Dense Units:", best_dense_units)
+print("Dropout:", best_dropout)
+print("Optimizer:", best_optimizer)
+print("Epochs:", best_epochs)
